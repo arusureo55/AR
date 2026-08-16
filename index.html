@@ -17,6 +17,9 @@
   #filenote b{display:block;font-size:13.5px;margin-bottom:4px}
   #filenote button{margin-top:10px;background:none;border:1px solid #4A5260;color:#E4E5DF;
     padding:6px 12px;border-radius:3px;font-size:12px}
+  #arstat{position:fixed;left:12px;top:12px;z-index:125;max-width:calc(100% - 24px);
+    background:rgba(20,22,26,.82);color:#E4E5DF;border-left:4px solid #E8451F;
+    padding:8px 12px;border-radius:4px;font-size:11.5px;line-height:1.5}
   #camnote{display:none;position:fixed;left:12px;right:12px;bottom:70px;z-index:130;
     background:#14161A;color:#E4E5DF;border-left:4px solid #E8451F;padding:14px 16px;
     border-radius:4px;font-size:12.5px;line-height:1.7}
@@ -33,14 +36,18 @@
 <a-scene embedded vr-mode-ui="enabled: false"
   renderer="colorManagement: true; antialias: true"
   arjs="sourceType: webcam; debugUIEnabled: false; sourceWidth: 1280; sourceHeight: 960; displayWidth: 1280; displayHeight: 960; canvasWidth: 800; canvasHeight: 600; maxDetectionRate: 60;">
-    <a-marker preset="hiro" smooth="true" smoothCount="5" smoothTolerance="0.02" smoothThreshold="2">
+    <a-entity light="type: ambient; color: #ffffff; intensity: 0.35"></a-entity>
+    <a-marker preset="hiro">
       <a-entity light="type: hemisphere; color: #ffffff; groundColor: #2a2f3a; intensity: 0.95"></a-entity>
       <a-entity light="type: directional; color: #ffffff; intensity: 0.75; castShadow: false" position="3 6 4"></a-entity>
       <a-entity light="type: directional; color: #8fb4ff; intensity: 0.25; castShadow: false" position="-4 2 -3"></a-entity>
+      <!-- 動作確認用。表示されれば、読み取りと描画は正常です -->
+      <a-box position="0 0.25 0" width="0.5" height="0.5" depth="0.5" color="#E8451F"></a-box>
       <a-sphere radius="0.5" position="0.00 0.50 0.00" rotation="0 0 0" scale="0.50 0.50 0.50" material="color: #3FA34D; roughness: 0.52; metalness: 0.06; opacity: 1; transparent: false; side: double" animation="property: object3D.position.y; from: 0.50; to: 0.75; dir: alternate; loop: true; dur: 1600; easing: easeInOutSine"></a-sphere>
     </a-marker>
     <a-entity camera></a-entity>
 </a-scene>
+<div id="arstat">よみこみ中…</div>
 <div id="camnote">
   <b id="camtitle">カメラが始まりません</b>
   <span id="camwhy"></span>
@@ -77,6 +84,7 @@
       var v = document.getElementById("arjs-video");
       if(v && v.videoWidth > 0){
         clearInterval(timer);
+        stat("カメラOK " + v.videoWidth + "x" + v.videoHeight + " / マーカーをさがしています", false);
         nudge();
         setTimeout(nudge, 400);
         setTimeout(nudge, 1200);
@@ -91,7 +99,13 @@
     if(!sc){ setTimeout(watchScene, 400); return; }
     var t0 = Date.now();
     var timer = setInterval(function(){
-      if(sc.hasLoaded){ clearInterval(timer); watchMarker(sc); return; }
+      if(sc.hasLoaded){
+        clearInterval(timer);
+        var n = sc.querySelectorAll("a-marker *").length;
+        stat("中身よみこみ完了（" + n + "個）/ マーカーをさがしています", false);
+        watchMarker(sc);
+        return;
+      }
       if(Date.now() - t0 > 14000){
         clearInterval(timer);
         arNote("中身の読み込みが終わりません", "動画や画像が重いか、通信が届いていません。動画を「軽くする」で小さくするか、通信を確認してください。");
@@ -123,7 +137,12 @@
     holdMarker(m);
     m.addEventListener("markerFound", function(){
       markerSeen = true;
+      stat("マーカーを見つけました", true);
+      statFade();
       document.getElementById("camnote").style.display = "none";
+    });
+    m.addEventListener("markerLost", function(){
+      if(!statHide) stat("マーカーを見失いました", false);
     });
     setTimeout(function(){
       if(markerSeen) return;
@@ -160,7 +179,28 @@
     if(!m) return;
     arNote("表示できませんでした", m.slice(0, 160));
   });
-  function startWatch(){ watchCamera(); watchScene(); tuneTracking(0); }
+  /* A live readout turns "nothing happens" into a fact you can act
+     on: whether the camera runs, whether the scene finished loading,
+     and whether the marker is being seen right now. */
+  var statEl = null, statHide = 0;
+  function stat(t, ok){
+    if(!statEl) statEl = document.getElementById("arstat");
+    if(!statEl) return;
+    statEl.textContent = t;
+    statEl.style.borderColor = ok ? "#3FA34D" : "#E8451F";
+  }
+  function statFade(){
+    if(statHide) return;
+    statHide = setTimeout(function(){
+      if(statEl) statEl.style.display = "none";
+    }, 6000);
+  }
+  function startWatch(){
+    statEl = document.getElementById("arstat");
+    if(statEl) statEl.addEventListener("click", function(){ this.style.display = "none"; });
+    stat("カメラを準備しています…", false);
+    watchCamera(); watchScene(); tuneTracking(0);
+  }
   document.getElementById("camx").addEventListener("click", function(){
     document.getElementById("camnote").style.display = "none";
   });
