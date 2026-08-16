@@ -41,8 +41,12 @@
       <a-entity light="type: hemisphere; color: #ffffff; groundColor: #2a2f3a; intensity: 0.95"></a-entity>
       <a-entity light="type: directional; color: #ffffff; intensity: 0.75; castShadow: false" position="3 6 4"></a-entity>
       <a-entity light="type: directional; color: #8fb4ff; intensity: 0.25; castShadow: false" position="-4 2 -3"></a-entity>
-      <!-- 動作確認用。表示されれば、読み取りと描画は正常です -->
-      <a-box position="0 0.25 0" width="0.5" height="0.5" depth="0.5" color="#E8451F"></a-box>
+      <a-sphere radius="0.5" position="0.00 0.50 0.00" rotation="0 0 0" scale="0.50 0.50 0.50" material="color: #3FA34D; roughness: 0.52; metalness: 0.06; opacity: 1; transparent: false; side: double" animation="property: object3D.position.y; from: 0.50; to: 0.75; dir: alternate; loop: true; dur: 1600; easing: easeInOutSine"></a-sphere>
+    </a-marker>
+    <a-marker preset="kanji">
+      <a-entity light="type: hemisphere; color: #ffffff; groundColor: #2a2f3a; intensity: 0.95"></a-entity>
+      <a-entity light="type: directional; color: #ffffff; intensity: 0.75; castShadow: false" position="3 6 4"></a-entity>
+      <a-entity light="type: directional; color: #8fb4ff; intensity: 0.25; castShadow: false" position="-4 2 -3"></a-entity>
       <a-sphere radius="0.5" position="0.00 0.50 0.00" rotation="0 0 0" scale="0.50 0.50 0.50" material="color: #3FA34D; roughness: 0.52; metalness: 0.06; opacity: 1; transparent: false; side: double" animation="property: object3D.position.y; from: 0.50; to: 0.75; dir: alternate; loop: true; dur: 1600; easing: easeInOutSine"></a-sphere>
     </a-marker>
     <a-entity camera></a-entity>
@@ -147,7 +151,11 @@
     setTimeout(function(){
       if(markerSeen) return;
       arNote("マーカーが見つかりません",
-        "カメラは動いています。黒いふちまで画面に入れ、まっすぐ、明るいところで写してください。紙が反射しているとき、印刷が小さすぎるとき、別のマーカーを写しているときは読み取れません。");
+        "カメラは動いています。読み取り方法を順に試しています。" +
+        "黒いふちが灰色っぽい・すじが入っている印刷は認識できません。" +
+        "インクを十分にして印刷し直すのがいちばん確実です。" +
+        "そのほか、黒いふちが画面から切れている、紙が反射している、" +
+        "印刷が小さすぎる場合も読み取れません。");
     }, 11000);
   }
   /* ARToolkit compares each frame against one fixed brightness cut
@@ -155,6 +163,41 @@
      the whole marker lands on one side of that cut, so nothing is
      found. Switching to a per-frame automatic threshold makes it
      adapt to the light it is actually given. */
+  /* The printed square in front of the camera is often not the solid
+     black the tracker assumes: toner-saving prints come out grey and
+     banded, and glare lifts one half of the sheet. One fixed way of
+     deciding black from white cannot cope with all of that, so try a
+     sequence of them until the marker is actually found. */
+  var arCtl = null;
+  var THRESHOLDS = [
+    {mode:1, label:"自動（中央値）"},
+    {mode:2, label:"自動（大津）"},
+    {mode:3, label:"自動（適応）"},
+    {mode:0, value:70,  label:"手動 70"},
+    {mode:0, value:100, label:"手動 100"},
+    {mode:0, value:130, label:"手動 130"},
+    {mode:0, value:160, label:"手動 160"},
+    {mode:0, value:190, label:"手動 190"}
+  ];
+  var thrIdx = 0, thrTimer = null;
+  function applyThreshold(i){
+    if(!arCtl) return;
+    var t = THRESHOLDS[i % THRESHOLDS.length];
+    try{
+      if(arCtl.setThresholdMode) arCtl.setThresholdMode(t.mode);
+      if(t.mode === 0 && arCtl.setThreshold) arCtl.setThreshold(t.value);
+    }catch(e){}
+    return t.label;
+  }
+  function huntThreshold(){
+    if(thrTimer || !arCtl) return;
+    thrTimer = setInterval(function(){
+      if(markerSeen){ clearInterval(thrTimer); thrTimer = null; return; }
+      thrIdx++;
+      var label = applyThreshold(thrIdx);
+      if(!statHide) stat("読み取り方法を変えています（" + label + "）", false);
+    }, 3500);
+  }
   function tuneTracking(tries){
     tries = tries || 0;
     try{
@@ -164,36 +207,13 @@
       var ctx = ses && (ses.arContext || ses._arContext);
       var ctl = ctx && ctx.arController;
       if(ctl && ctl.setThresholdMode){
-        ctl.setThresholdMode(1);
-        if(ctl.setPatternDetectionMode && window.artoolkit && artoolkit.AR_TEMPLATE_MATCHING_COLOR !== undefined){
-          ctl.setPatternDetectionMode(artoolkit.AR_TEMPLATE_MATCHING_MONO);
-        }
+        arCtl = ctl;
+        applyThreshold(0);
+        huntThreshold();
         return;
       }
     }catch(e){}
     if(tries < 20) setTimeout(function(){ tuneTracking(tries + 1); }, 500);
-  }
-  /* a shader or library failure used to leave a silent black page */
-  window.addEventListener("error", function(e){
-    var m = (e && e.message) ? String(e.message) : "";
-    if(!m) return;
-    arNote("表示できませんでした", m.slice(0, 160));
-  });
-  /* A live readout turns "nothing happens" into a fact you can act
-     on: whether the camera runs, whether the scene finished loading,
-     and whether the marker is being seen right now. */
-  var statEl = null, statHide = 0;
-  function stat(t, ok){
-    if(!statEl) statEl = document.getElementById("arstat");
-    if(!statEl) return;
-    statEl.textContent = t;
-    statEl.style.borderColor = ok ? "#3FA34D" : "#E8451F";
-  }
-  function statFade(){
-    if(statHide) return;
-    statHide = setTimeout(function(){
-      if(statEl) statEl.style.display = "none";
-    }, 6000);
   }
   function startWatch(){
     statEl = document.getElementById("arstat");
